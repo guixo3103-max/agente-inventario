@@ -20,6 +20,7 @@ const REQUIRED_FIELDS = [
   { key:"m8",  label:"Mes 8" }, { key:"m9",  label:"Mes 9" },
   { key:"m10", label:"Mes 10" },{ key:"m11", label:"Mes 11" },
   { key:"m12", label:"Mes 12 (más antiguo)" },
+  { key:"alerta_lote", label:"Alerta Lote", optional:true },
 ];
 
 const BAJA_ROTACION = ["D","E","F","G","P","O","Z"];
@@ -72,6 +73,7 @@ const processRaw = (rows, mapping) => rows.map(row => {
   const minimo   = calcMinimo(abc_bodega, consumo);
   const maximo   = calcMaximo(abc_bodega, consumo);
   const meses    = [1,2,3,4,5,6,7,8,9,10,11,12].map(i => gn(`m${i}`));
+  const alerta_lote = String(g("alerta_lote")||"").trim();
   const base = { bodega:String(g("bodega")||""), articulo:String(g("articulo")||""),
     descripcion:String(g("descripcion")||""), abc_empresa, abc_bodega,
     stock, stock_cd, transito, consumo, posicion, minimo, maximo, meses };
@@ -156,6 +158,7 @@ export default function App() {
       consumo:["consumo","mensual"],
       m1:["1"],m2:["2"],m3:["3"],m4:["4"],m5:["5"],m6:["6"],
       m7:["7"],m8:["8"],m9:["9"],m10:["10"],m11:["11"],m12:["12"],
+      alerta_lote:["alertalote","alerta_lote","alertalot","lote"],
     };
     const auto = {};
     REQUIRED_FIELDS.forEach(({ key }) => {
@@ -256,7 +259,7 @@ export default function App() {
 
   const clearSelection = () => setSelectedCells({});
   const selCount = Object.keys(selectedCells).length;
-  const allMapped = REQUIRED_FIELDS.every(f => mapping[f.key]);
+  const allMapped = REQUIRED_FIELDS.filter(f => !f.optional).every(f => mapping[f.key]);
   const S = { fontFamily:"system-ui", fontSize:13 };
 
   const SortIcon = ({ col }) => sortCol===col
@@ -481,8 +484,8 @@ export default function App() {
           )}
         </div>
 
-        {/* TABLE */}
-        <div style={{background:"white",border:"0.5px solid #D3D1C7",borderRadius:12,overflow:"hidden"}}>
+        {/* TABLE RESUMEN */}
+        {view==="resumen" && <div style={{background:"white",border:"0.5px solid #D3D1C7",borderRadius:12,overflow:"hidden"}}>
           <div style={{overflowX:"auto"}}>
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
               <thead>
@@ -553,7 +556,55 @@ export default function App() {
             </table>
           </div>
           {filtered.length>300&&<div style={{padding:"10px 16px",fontSize:12,color:"#888780",borderTop:"0.5px solid #F1EFE8",textAlign:"center"}}>Mostrando primeros 300 — usa filtros para acotar.</div>}
-        </div>
+        </div>}
+
+        {/* TABLE DETALLE con 12 meses */}
+        {view==="detalle" && <div style={{background:"white",border:"0.5px solid #D3D1C7",borderRadius:12,overflow:"hidden"}}>
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+              <thead><tr style={{background:"#F8F7F4"}}>
+                {["SKU","Descripción","ABC","Alerta Lote","Stock
+Bodega","Stock
+CD","Tránsito","Consumo","Mínimo","Máximo","Sugerido","M1","M2","M3","M4","M5","M6","M7","M8","M9","M10","M11","M12","Recomendación"].map((h,i)=>(
+                  <th key={i} style={{padding:"6px 8px",textAlign:i>=11&&i<=23?"right":"left",fontSize:10,color:"#888780",fontWeight:500,borderBottom:"0.5px solid #D3D1C7",whiteSpace:"pre-wrap",lineHeight:1.3}}>{h}</th>
+                ))}
+              </tr></thead>
+              <tbody>
+                {filtered.slice(0,200).map((r,i)=>{
+                  const tc=TIPO_CONFIG[r.tipo];
+                  const maxM=Math.max(...r.meses,1);
+                  return <tr key={i} onClick={()=>setSelected(r)} style={{borderBottom:"0.5px solid #F1EFE8",background:r.tipo==="CRITICO"?"#FFF8F8":"white",cursor:"pointer"}}
+                    onMouseEnter={e=>e.currentTarget.style.background="#F8F7F4"}
+                    onMouseLeave={e=>e.currentTarget.style.background=r.tipo==="CRITICO"?"#FFF8F8":"white"}>
+                    <td style={{padding:"5px 8px",fontFamily:"monospace",whiteSpace:"nowrap",fontSize:11}}>{r.articulo}</td>
+                    <td style={{padding:"5px 8px",maxWidth:150,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:"#444441"}} title={r.descripcion}>{r.descripcion}</td>
+                    <td style={{padding:"5px 8px"}}><span style={{background:r.abc_bodega==="A00"?"#FCEBEB":r.abc_bodega==="A"?"#EAF3DE":"#F1EFE8",color:r.abc_bodega==="A00"?"#A32D2D":r.abc_bodega==="A"?"#3B6D11":"#5F5E5A",padding:"1px 6px",borderRadius:3,fontSize:10,fontWeight:500}}>{r.abc_bodega}</span></td>
+                    <td style={{padding:"5px 8px"}}>{r.alerta_lote?<span style={{background:"#FAEEDA",color:"#854F0B",padding:"1px 6px",borderRadius:3,fontSize:10,fontWeight:500}}>{r.alerta_lote}</span>:""}</td>
+                    <td style={{padding:"5px 8px",textAlign:"right",fontWeight:500}}>{r.stock}</td>
+                    <td style={{padding:"5px 8px",textAlign:"right",color:"#185FA5"}}>{r.stock_cd}</td>
+                    <td style={{padding:"5px 8px",textAlign:"right",color:"#888780"}}>{r.transito}</td>
+                    <td style={{padding:"5px 8px",textAlign:"right"}}>{r.consumo}</td>
+                    <td style={{padding:"5px 8px",textAlign:"right",color:"#854F0B"}}>{r.minimo}</td>
+                    <td style={{padding:"5px 8px",textAlign:"right",color:"#3B6D11"}}>{r.maximo}</td>
+                    <td style={{padding:"5px 8px",textAlign:"right",fontWeight:r.sugerido>0?600:400,color:r.sugerido>0?"#185FA5":"#888780"}}>{r.sugerido||"—"}</td>
+                    {r.meses.map((v,mi)=>(
+                      <td key={mi} style={{padding:"4px 6px",textAlign:"right"}}>
+                        <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:1}}>
+                          <span style={{fontSize:10,color:v>0?"#2C2C2A":"#D3D1C7"}}>{v||"—"}</span>
+                          <div style={{width:24,height:3,background:"#F1EFE8",borderRadius:2}}>
+                            <div style={{width:`${(v/maxM)*100}%`,height:"100%",background:"#185FA5",borderRadius:2}}/>
+                          </div>
+                        </div>
+                      </td>
+                    ))}
+                    <td style={{padding:"5px 8px",whiteSpace:"nowrap"}}><span style={{background:tc.bg,color:tc.color,padding:"2px 6px",borderRadius:3,fontSize:10,fontWeight:500}}>{tc.label}</span></td>
+                  </tr>;
+                })}
+              </tbody>
+            </table>
+          </div>
+          {filtered.length>200&&<div style={{padding:"10px 16px",fontSize:12,color:"#888780",borderTop:"0.5px solid #F1EFE8",textAlign:"center"}}>Mostrando primeros 200 — usa filtros para acotar.</div>}
+        </div>}
       </div>
     </div>
   );
