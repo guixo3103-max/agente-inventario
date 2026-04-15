@@ -1,7 +1,7 @@
 import { useState, useCallback, useMemo } from "react";
 import * as XLSX from "xlsx";
 
-const SHEETS_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTb7Qz8RZweOyi84QWkdlSz-f5H9_3XFFEukasuVq0e7N94dETrhg5U-rwhM16E-pL7TG9oNMXsG0q6/pub?gid=301328833&single=true&output=csv";
+const SHEETS_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRJwCHYoCrnaMu-SXGZoD-1N2rx7tl192B1vEKhrmCPvbBQvyK-79hBsOLkRDjwD-YEX2P0mB8VQFRy/pub?gid=752561413&single=true&output=csv";
 
 const REQUIRED_FIELDS = [
   { key:"bodega",       label:"Bodega / Punto de venta" },
@@ -558,4 +558,3 @@ export default function App() {
     </div>
   );
 }
-
