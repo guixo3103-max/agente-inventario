@@ -1,7 +1,7 @@
 import { useState, useCallback, useMemo } from "react";
 import * as XLSX from "xlsx";
 
-const SHAREPOINT_URL = "https://canellas-my.sharepoint.com/:x:/g/personal/lpatzan_canella_com_gt/IQBPRZp0P-G3T4g3D34wRstvAd84L99IBsA2YQC6ZHE3SWA?e=KvGllW&download=1";
+const SHEETS_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTb7Qz8RZweOyi84QWkdlSz-f5H9_3XFFEukasuVq0e7N94dETrhg5U-rwhM16E-pL7TG9oNMXsG0q6/pub?gid=301328833&single=true&output=csv";
 
 const REQUIRED_FIELDS = [
   { key: "bodega",       label: "Bodega / Punto de venta" },
@@ -89,16 +89,16 @@ export default function App() {
     } else { setStep("map"); }
   }, []);
 
-  const loadFromSharePoint = useCallback(async () => {
+  const loadFromSheets = useCallback(async () => {
     setLoading(true); setError("");
     try {
-      const res = await fetch(SHAREPOINT_URL);
+      const res = await fetch(SHEETS_URL);
       if (!res.ok) throw new Error(`Error al descargar (${res.status})`);
-      const buf  = await res.arrayBuffer();
-      const wb   = XLSX.read(buf, { type:"array" });
+      const csv  = await res.text();
+      const wb   = XLSX.read(csv, { type:"string" });
       const ws   = wb.Sheets[wb.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json(ws, { defval:0 });
-      if (!rows.length) throw new Error("El archivo está vacío.");
+      if (!rows.length) throw new Error("La hoja está vacía.");
       loadRows(rows);
     } catch(e) { setError(e.message); }
     finally { setLoading(false); }
@@ -159,10 +159,10 @@ export default function App() {
       <div style={{maxWidth:500,width:"100%",textAlign:"center"}}>
         <div style={{fontSize:11,letterSpacing:"0.2em",color:"#888780",textTransform:"uppercase",marginBottom:10,fontFamily:"Georgia,serif"}}>Agente de Inventario</div>
         <h1 style={{fontSize:"2rem",fontWeight:400,color:"#2C2C2A",marginBottom:8,fontFamily:"Georgia,serif",letterSpacing:"-0.02em"}}>Nivelación & Sugeridos</h1>
-        <p style={{fontSize:13,color:"#888780",marginBottom:36,lineHeight:1.7}}>Conecta con tu archivo en SharePoint o carga manualmente.</p>
+        <p style={{fontSize:13,color:"#888780",marginBottom:36,lineHeight:1.7}}>Conecta con tu archivo en Google Sheets o carga manualmente.</p>
         {error&&<div style={{fontSize:12,color:"#A32D2D",background:"#FCEBEB",padding:"10px 14px",borderRadius:8,marginBottom:20,textAlign:"left",lineHeight:1.5}}>{error}</div>}
-        <button onClick={loadFromSharePoint} disabled={loading} style={{width:"100%",padding:"14px",borderRadius:10,border:"none",background:loading?"#D3D1C7":"#2C2C2A",color:"white",fontSize:14,fontWeight:500,cursor:loading?"wait":"pointer",marginBottom:12,display:"flex",alignItems:"center",justifyContent:"center",gap:10}}>
-          <span>☁️</span>{loading?"Cargando desde SharePoint…":"Sincronizar desde SharePoint"}
+        <button onClick={loadFromSheets} disabled={loading} style={{width:"100%",padding:"14px",borderRadius:10,border:"none",background:loading?"#D3D1C7":"#2C2C2A",color:"white",fontSize:14,fontWeight:500,cursor:loading?"wait":"pointer",marginBottom:12,display:"flex",alignItems:"center",justifyContent:"center",gap:10}}>
+          <span>☁️</span>{loading?"Cargando desde Google Sheets…":"Sincronizar desde Google Sheets"}
         </button>
         <div style={{fontSize:12,color:"#B4B2A9",margin:"12px 0",display:"flex",alignItems:"center",gap:8}}>
           <div style={{flex:1,height:"0.5px",background:"#D3D1C7"}}/><span>o carga manualmente</span><div style={{flex:1,height:"0.5px",background:"#D3D1C7"}}/>
@@ -221,7 +221,7 @@ export default function App() {
           {lastSync&&<span style={{color:"#888780",fontSize:11}}>· {lastSync.toLocaleTimeString()}</span>}
         </div>
         <div style={{display:"flex",gap:8}}>
-          <button onClick={loadFromSharePoint} disabled={loading} style={{fontSize:12,padding:"4px 14px",borderRadius:6,border:"0.5px solid #444441",background:"transparent",color:loading?"#888780":"#D3D1C7",cursor:loading?"wait":"pointer"}}>{loading?"Sincronizando…":"↻ Sincronizar"}</button>
+          <button onClick={loadFromSheets} disabled={loading} style={{fontSize:12,padding:"4px 14px",borderRadius:6,border:"0.5px solid #444441",background:"transparent",color:loading?"#888780":"#D3D1C7",cursor:loading?"wait":"pointer"}}>{loading?"Sincronizando…":"↻ Sincronizar"}</button>
           <button onClick={()=>setStep("map")} style={{fontSize:12,padding:"4px 12px",borderRadius:6,border:"0.5px solid #444441",background:"transparent",color:"#888780",cursor:"pointer"}}>Columnas</button>
           <button onClick={()=>setStep("home")} style={{fontSize:12,padding:"4px 12px",borderRadius:6,border:"0.5px solid #444441",background:"transparent",color:"#888780",cursor:"pointer"}}>Inicio</button>
         </div>
