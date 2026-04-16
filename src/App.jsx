@@ -106,6 +106,7 @@ export default function App() {
   const [copied, setCopied]     = useState(false);
   const [selectedCells, setSelectedCells] = useState({}); // {rowIdx: {col: true}}
   const [filterOpen, setFilterOpen] = useState(null);
+  const [showCDAlert, setShowCDAlert] = useState(false);
 
   const loadRows = useCallback((rows) => {
     setHeaders(Object.keys(rows[0]));
@@ -221,6 +222,21 @@ export default function App() {
     sobrestock:data.filter(r=>r.tipo==="SOBRESTOCK").length,
     total: data.length,
   }), [data]);
+
+  // Alert: SKUs where total sugerido > stock_cd
+  const alertasCD = useMemo(() => {
+    const byArticulo = {};
+    data.forEach(r => {
+      if (!r.articulo) return;
+      if (!byArticulo[r.articulo]) byArticulo[r.articulo] = { articulo: r.articulo, descripcion: r.descripcion, stock_cd: r.stock_cd, total_sugerido: 0 };
+      byArticulo[r.articulo].total_sugerido += r.sugerido;
+      // Take max stock_cd seen (should be same across rows)
+      if (r.stock_cd > byArticulo[r.articulo].stock_cd) byArticulo[r.articulo].stock_cd = r.stock_cd;
+    });
+    return Object.values(byArticulo)
+      .filter(r => r.total_sugerido > 0 && r.total_sugerido > r.stock_cd)
+      .sort((a,b) => (b.total_sugerido - b.stock_cd) - (a.total_sugerido - a.stock_cd));
+  }, [data]);
 
   // Cell selection for SAP copy
   const toggleCell = (rowIdx, col) => {
@@ -439,7 +455,7 @@ export default function App() {
         {error&&<div style={{fontSize:12,color:"#A32D2D",background:"#FCEBEB",padding:"8px 12px",borderRadius:8,marginBottom:12}}>{error}</div>}
 
         {/* Metric cards */}
-        <div style={{display:"grid",gridTemplateColumns:"repeat(4,minmax(0,1fr))",gap:10,marginBottom:18}}>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(5,minmax(0,1fr))",gap:10,marginBottom:18}}>
           {[
             {label:"Críticos sin stock",   val:metrics.criticos,   color:"#A32D2D",bg:"#FCEBEB",f:"CRITICO"},
             {label:"Reposición pendiente", val:metrics.reposicion, color:"#185FA5",bg:"#E6F1FB",f:"REPOSICION"},
@@ -452,7 +468,48 @@ export default function App() {
               <div style={{fontSize:22,fontWeight:500,color:m.color}}>{m.val}</div>
             </div>
           ))}
+          <div onClick={()=>setShowCDAlert(true)}
+            style={{background:alertasCD.length>0?"#FCEBEB":"white",border:`0.5px solid ${alertasCD.length>0?"#A32D2D55":"#D3D1C7"}`,borderRadius:10,padding:"0.85rem 1rem",cursor:"pointer",transition:"all 0.15s",position:"relative"}}>
+            <div style={{fontSize:11,color:"#888780",marginBottom:4}}>Insuficiencia en CD</div>
+            <div style={{fontSize:22,fontWeight:500,color:alertasCD.length>0?"#A32D2D":"#888780"}}>{alertasCD.length}</div>
+            {alertasCD.length>0&&<div style={{fontSize:10,color:"#A32D2D",marginTop:2}}>SKUs sin cobertura ↗</div>}
+          </div>
         </div>
+
+        {/* CD Alert Modal */}
+        {showCDAlert && (
+          <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:2000,padding:"1rem"}} onClick={()=>setShowCDAlert(false)}>
+            <div style={{background:"white",borderRadius:16,width:"100%",maxWidth:700,maxHeight:"85vh",overflowY:"auto",padding:"1.5rem"}} onClick={e=>e.stopPropagation()}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+                <div>
+                  <div style={{fontSize:16,fontWeight:600,color:"#A32D2D"}}>⚠ Insuficiencia de stock en CD</div>
+                  <div style={{fontSize:12,color:"#888780",marginTop:2}}>SKUs donde la suma de sugeridos supera el stock disponible en el CD</div>
+                </div>
+                <button onClick={()=>setShowCDAlert(false)} style={{fontSize:20,border:"none",background:"none",cursor:"pointer",color:"#888780"}}>✕</button>
+              </div>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                <thead><tr style={{background:"#F8F7F4"}}>
+                  <th style={{padding:"8px 10px",textAlign:"left",fontSize:11,color:"#888780",fontWeight:500,borderBottom:"0.5px solid #D3D1C7"}}>SKU</th>
+                  <th style={{padding:"8px 10px",textAlign:"left",fontSize:11,color:"#888780",fontWeight:500,borderBottom:"0.5px solid #D3D1C7"}}>Descripción</th>
+                  <th style={{padding:"8px 10px",textAlign:"right",fontSize:11,color:"#888780",fontWeight:500,borderBottom:"0.5px solid #D3D1C7"}}>Stock CD</th>
+                  <th style={{padding:"8px 10px",textAlign:"right",fontSize:11,color:"#888780",fontWeight:500,borderBottom:"0.5px solid #D3D1C7"}}>Total sugerido</th>
+                  <th style={{padding:"8px 10px",textAlign:"right",fontSize:11,color:"#888780",fontWeight:500,borderBottom:"0.5px solid #D3D1C7"}}>Faltante</th>
+                </tr></thead>
+                <tbody>
+                  {alertasCD.map((r,i)=>(
+                    <tr key={i} style={{borderBottom:"0.5px solid #F1EFE8"}}>
+                      <td style={{padding:"7px 10px",fontFamily:"monospace"}}>{r.articulo}</td>
+                      <td style={{padding:"7px 10px",color:"#444441",maxWidth:200,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={r.descripcion}>{r.descripcion}</td>
+                      <td style={{padding:"7px 10px",textAlign:"right",color:"#3B6D11",fontWeight:500}}>{r.stock_cd}</td>
+                      <td style={{padding:"7px 10px",textAlign:"right",color:"#185FA5",fontWeight:500}}>{r.total_sugerido}</td>
+                      <td style={{padding:"7px 10px",textAlign:"right",color:"#A32D2D",fontWeight:700}}>{r.total_sugerido - r.stock_cd}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
 
         {/* Filters bar */}
         <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
@@ -515,7 +572,7 @@ export default function App() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.slice(0,300).map((r,i)=>{
+                {filtered.map((r,i)=>{
                   const tc = TIPO_CONFIG[r.tipo];
                   const rowSel = selectedCells[i] || {};
                   const artSel = rowSel["articulo"];
@@ -555,7 +612,7 @@ export default function App() {
               </tbody>
             </table>
           </div>
-          {filtered.length>300&&<div style={{padding:"10px 16px",fontSize:12,color:"#888780",borderTop:"0.5px solid #F1EFE8",textAlign:"center"}}>Mostrando primeros 300 — usa filtros para acotar.</div>}
+
         </div>}
 
         {/* TABLE DETALLE con 12 meses */}
@@ -563,12 +620,12 @@ export default function App() {
           <div style={{overflowX:"auto"}}>
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
               <thead><tr style={{background:"#F8F7F4"}}>
-              {["SKU","Descripción","ABC","Alerta Lote","Stock Bodega","Stock CD","Tránsito","Consumo","Mínimo","Máximo","Sugerido","M1","M2","M3","M4","M5","M6","M7","M8","M9","M10","M11","M12","Recomendación"].map((h,i)=>(
+                {["SKU","Descripci00f3n","ABC","Alerta Lote","Stock Bodega","Stock CD","Tr00e1nsito","Consumo","M00ednimo","M00e1ximo","Sugerido","M1","M2","M3","M4","M5","M6","M7","M8","M9","M10","M11","M12","Recomendaci00f3n"].map((h,i)=>(
                   <th key={i} style={{padding:"6px 8px",textAlign:i>=11&&i<=23?"right":"left",fontSize:10,color:"#888780",fontWeight:500,borderBottom:"0.5px solid #D3D1C7",whiteSpace:"pre-wrap",lineHeight:1.3}}>{h}</th>
                 ))}
               </tr></thead>
               <tbody>
-                {filtered.slice(0,200).map((r,i)=>{
+                {filtered.map((r,i)=>{
                   const tc=TIPO_CONFIG[r.tipo];
                   const maxM=Math.max(...r.meses,1);
                   return <tr key={i} onClick={()=>setSelected(r)} style={{borderBottom:"0.5px solid #F1EFE8",background:r.tipo==="CRITICO"?"#FFF8F8":"white",cursor:"pointer"}}
@@ -601,7 +658,7 @@ export default function App() {
               </tbody>
             </table>
           </div>
-          {filtered.length>200&&<div style={{padding:"10px 16px",fontSize:12,color:"#888780",borderTop:"0.5px solid #F1EFE8",textAlign:"center"}}>Mostrando primeros 200 — usa filtros para acotar.</div>}
+
         </div>}
       </div>
     </div>
