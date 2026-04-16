@@ -107,6 +107,7 @@ export default function App() {
   const [selectedCells, setSelectedCells] = useState({}); // {rowIdx: {col: true}}
   const [filterOpen, setFilterOpen] = useState(null);
   const [showCDAlert, setShowCDAlert] = useState(false);
+  const [showLoteAlert, setShowLoteAlert] = useState(false);
 
   const loadRows = useCallback((rows) => {
     setHeaders(Object.keys(rows[0]));
@@ -238,6 +239,12 @@ export default function App() {
       .sort((a,b) => (b.total_sugerido - b.stock_cd) - (a.total_sugerido - a.stock_cd));
   }, [data]);
 
+  // Alert: SKUs with sugerido > 0 AND alerta_lote set
+  const alertasLote = useMemo(() => {
+    return data.filter(r => r.sugerido > 0 && r.alerta_lote && r.alerta_lote !== "")
+      .sort((a,b) => b.sugerido - a.sugerido);
+  }, [data]);
+
   // Cell selection for SAP copy
   const toggleCell = (rowIdx, col) => {
     setSelectedCells(prev => {
@@ -274,6 +281,34 @@ export default function App() {
   };
 
   const clearSelection = () => setSelectedCells({});
+
+  const exportToExcel = () => {
+    const rows = filtered.map(r => ({
+      "Bodega": r.bodega,
+      "SKU": r.articulo,
+      "Descripción": r.descripcion,
+      "ABC Empresa": r.abc_empresa,
+      "ABC Bodega": r.abc_bodega,
+      "Stock Bodega": r.stock,
+      "Stock CD": r.stock_cd,
+      "Tránsito": r.transito,
+      "Posición": r.posicion,
+      "Consumo Mensual": r.consumo,
+      "Mínimo": r.minimo,
+      "Máximo": r.maximo,
+      "Sugerido": r.sugerido,
+      "Alerta Lote": r.alerta_lote||"",
+      "Acción": TIPO_CONFIG[r.tipo]?.label||"",
+      "M1": r.meses[0], "M2": r.meses[1], "M3": r.meses[2], "M4": r.meses[3],
+      "M5": r.meses[4], "M6": r.meses[5], "M7": r.meses[6], "M8": r.meses[7],
+      "M9": r.meses[8], "M10": r.meses[9], "M11": r.meses[10], "M12": r.meses[11],
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Nivelacion");
+    const fecha = new Date().toISOString().slice(0,10);
+    XLSX.writeFile(wb, `nivelacion_${fecha}.xlsx`);
+  };
   const selCount = Object.keys(selectedCells).length;
   const allMapped = REQUIRED_FIELDS.filter(f => !f.optional).every(f => mapping[f.key]);
   const S = { fontFamily:"system-ui", fontSize:13 };
@@ -444,6 +479,7 @@ export default function App() {
             </button>
           )}
           {selCount>0&&<button onClick={clearSelection} style={{fontSize:12,padding:"4px 10px",borderRadius:6,border:"0.5px solid #444441",background:"transparent",color:"#888780",cursor:"pointer"}}>✕</button>}
+          <button onClick={exportToExcel} style={{fontSize:12,padding:"4px 14px",borderRadius:6,border:"none",background:"#1D9E75",color:"white",cursor:"pointer",fontWeight:500}}>⬇ Exportar Excel</button>
           <button onClick={loadFromSheets} disabled={loading} style={{fontSize:12,padding:"4px 14px",borderRadius:6,border:"0.5px solid #444441",background:"transparent",color:loading?"#888780":"#D3D1C7",cursor:loading?"wait":"pointer"}}>{loading?"Sincronizando…":"↻ Sincronizar"}</button>
           <button onClick={()=>setView(v=>v==="resumen"?"detalle":"resumen")} style={{fontSize:12,padding:"4px 12px",borderRadius:6,border:"0.5px solid #444441",background:view==="detalle"?"#444441":"transparent",color:"#D3D1C7",cursor:"pointer"}}>{view==="resumen"?"Vista detalle":"Vista resumen"}</button>
           <button onClick={()=>setStep("map")} style={{fontSize:12,padding:"4px 12px",borderRadius:6,border:"0.5px solid #444441",background:"transparent",color:"#888780",cursor:"pointer"}}>Columnas</button>
@@ -455,7 +491,7 @@ export default function App() {
         {error&&<div style={{fontSize:12,color:"#A32D2D",background:"#FCEBEB",padding:"8px 12px",borderRadius:8,marginBottom:12}}>{error}</div>}
 
         {/* Metric cards */}
-        <div style={{display:"grid",gridTemplateColumns:"repeat(5,minmax(0,1fr))",gap:10,marginBottom:18}}>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(6,minmax(0,1fr))",gap:10,marginBottom:18}}>
           {[
             {label:"Críticos sin stock",   val:metrics.criticos,   color:"#A32D2D",bg:"#FCEBEB",f:"CRITICO"},
             {label:"Reposición pendiente", val:metrics.reposicion, color:"#185FA5",bg:"#E6F1FB",f:"REPOSICION"},
@@ -473,6 +509,12 @@ export default function App() {
             <div style={{fontSize:11,color:"#888780",marginBottom:4}}>Insuficiencia en CD</div>
             <div style={{fontSize:22,fontWeight:500,color:alertasCD.length>0?"#A32D2D":"#888780"}}>{alertasCD.length}</div>
             {alertasCD.length>0&&<div style={{fontSize:10,color:"#A32D2D",marginTop:2}}>SKUs sin cobertura ↗</div>}
+          </div>
+          <div onClick={()=>setShowLoteAlert(true)}
+            style={{background:alertasLote.length>0?"#FAEEDA":"white",border:`0.5px solid ${alertasLote.length>0?"#854F0B55":"#D3D1C7"}`,borderRadius:10,padding:"0.85rem 1rem",cursor:"pointer",transition:"all 0.15s"}}>
+            <div style={{fontSize:11,color:"#888780",marginBottom:4}}>Revisar lote</div>
+            <div style={{fontSize:22,fontWeight:500,color:alertasLote.length>0?"#854F0B":"#888780"}}>{alertasLote.length}</div>
+            {alertasLote.length>0&&<div style={{fontSize:10,color:"#854F0B",marginTop:2}}>Con sugerido ↗</div>}
           </div>
         </div>
 
@@ -503,6 +545,44 @@ export default function App() {
                       <td style={{padding:"7px 10px",textAlign:"right",color:"#3B6D11",fontWeight:500}}>{r.stock_cd}</td>
                       <td style={{padding:"7px 10px",textAlign:"right",color:"#185FA5",fontWeight:500}}>{r.total_sugerido}</td>
                       <td style={{padding:"7px 10px",textAlign:"right",color:"#A32D2D",fontWeight:700}}>{r.total_sugerido - r.stock_cd}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}        )}
+
+        {/* Lote Alert Modal */}
+        {showLoteAlert && (
+          <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:2000,padding:"1rem"}} onClick={()=>setShowLoteAlert(false)}>
+            <div style={{background:"white",borderRadius:16,width:"100%",maxWidth:800,maxHeight:"85vh",overflowY:"auto",padding:"1.5rem"}} onClick={e=>e.stopPropagation()}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+                <div>
+                  <div style={{fontSize:16,fontWeight:600,color:"#854F0B"}}>⚠ Sugeridos con alerta de lote</div>
+                  <div style={{fontSize:12,color:"#888780",marginTop:2}}>Códigos con reposición sugerida que requieren revisión del múltiplo de compra</div>
+                </div>
+                <button onClick={()=>setShowLoteAlert(false)} style={{fontSize:20,border:"none",background:"none",cursor:"pointer",color:"#888780"}}>✕</button>
+              </div>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                <thead><tr style={{background:"#F8F7F4"}}>
+                  {["Bodega","SKU","Descripción","ABC","Alerta Lote","Stock","Posición","Mínimo","Máximo","Sugerido"].map(h=>(
+                    <th key={h} style={{padding:"8px 10px",textAlign:"left",fontSize:11,color:"#888780",fontWeight:500,borderBottom:"0.5px solid #D3D1C7",whiteSpace:"nowrap"}}>{h}</th>
+                  ))}
+                </tr></thead>
+                <tbody>
+                  {alertasLote.map((r,i)=>(
+                    <tr key={i} style={{borderBottom:"0.5px solid #F1EFE8"}}>
+                      <td style={{padding:"7px 10px",maxWidth:100,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.bodega}</td>
+                      <td style={{padding:"7px 10px",fontFamily:"monospace",whiteSpace:"nowrap"}}>{r.articulo}</td>
+                      <td style={{padding:"7px 10px",color:"#444441",maxWidth:180,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={r.descripcion}>{r.descripcion}</td>
+                      <td style={{padding:"7px 10px"}}><span style={{background:r.abc_bodega==="A00"?"#FCEBEB":r.abc_bodega==="A"?"#EAF3DE":"#F1EFE8",color:r.abc_bodega==="A00"?"#A32D2D":r.abc_bodega==="A"?"#3B6D11":"#5F5E5A",padding:"1px 7px",borderRadius:4,fontSize:11,fontWeight:500}}>{r.abc_bodega}</span></td>
+                      <td style={{padding:"7px 10px"}}><span style={{background:"#FAEEDA",color:"#854F0B",padding:"1px 7px",borderRadius:4,fontSize:11,fontWeight:500}}>{r.alerta_lote}</span></td>
+                      <td style={{padding:"7px 10px",textAlign:"right"}}>{r.stock}</td>
+                      <td style={{padding:"7px 10px",textAlign:"right",color:r.posicion<r.minimo?"#A32D2D":"#2C2C2A",fontWeight:500}}>{r.posicion}</td>
+                      <td style={{padding:"7px 10px",textAlign:"right",color:"#854F0B"}}>{r.minimo}</td>
+                      <td style={{padding:"7px 10px",textAlign:"right",color:"#3B6D11"}}>{r.maximo}</td>
+                      <td style={{padding:"7px 10px",textAlign:"right",color:"#185FA5",fontWeight:600}}>{r.sugerido}</td>
                     </tr>
                   ))}
                 </tbody>
