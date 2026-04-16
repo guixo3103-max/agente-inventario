@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useRef } from "react";
 import * as XLSX from "xlsx";
 
 const SHEETS_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRJwCHYoCrnaMu-SXGZoD-1N2rx7tl192B1vEKhrmCPvbBQvyK-79hBsOLkRDjwD-YEX2P0mB8VQFRy/pub?gid=752561413&single=true&output=csv";
@@ -101,6 +101,8 @@ export default function App() {
   const [filters, setFilters]   = useState({ bodega:"todas", tipo:"todos", abc:"todos" });
   const [colFilters, setColFilters] = useState({});
   const [search, setSearch]     = useState("");
+  const [searchInput, setSearchInput] = useState("");
+  const searchTimer = useRef(null);
   const [sortCol, setSortCol]   = useState("tipo");
   const [sortDir, setSortDir]   = useState("asc");
   const [dragOver, setDragOver] = useState(false);
@@ -139,7 +141,9 @@ export default function App() {
       const res = await fetch(SHEETS_URL);
       if (!res.ok) throw new Error(`Error al descargar (${res.status})`);
       const csv  = await res.text();
+      await new Promise(r => setTimeout(r, 0));
       const wb   = XLSX.read(csv, { type:"string" });
+      await new Promise(r => setTimeout(r, 0));
       const ws   = wb.Sheets[wb.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json(ws, { defval:0 });
       if (!rows.length) throw new Error("La hoja está vacía.");
@@ -257,6 +261,58 @@ export default function App() {
       .sort((a,b) => b.sugerido - a.sugerido);
   }, [data]);
 
+  // Consolidado por SKU — suma todas las bodegas
+  const consolidado = useMemo(() => {
+    const map = {};
+    data.forEach(r => {
+      if (!r.articulo) return;
+      if (!map[r.articulo]) {
+        map[r.articulo] = {
+          articulo: r.articulo,
+          descripcion: r.descripcion,
+          abc_empresa: r.abc_empresa,
+          stock_total: 0,
+          stock_cd: r.stock_cd,
+          transito_total: 0,
+          consumo_vals: [],
+          meses: Array(12).fill(0),
+          sugerido_total: 0,
+          bodegas_con_exceso: 0,
+          bodegas_count: 0,
+        };
+      }
+      const e = map[r.articulo];
+      e.stock_total   += r.stock;
+      e.transito_total += r.transito;
+      e.sugerido_total += r.sugerido;
+      e.bodegas_count  += 1;
+      if (r.tipo === "SOBRESTOCK") e.bodegas_con_exceso += 1;
+      if (r.stock_cd > e.stock_cd) e.stock_cd = r.stock_cd;
+      // Accumulate monthly sales
+      r.meses.forEach((v,i) => { e.meses[i] += v; });
+      // Keep individual bodega consumo for aggregated calc
+      if (r.consumo > 0) e.consumo_vals.push(r.consumo);
+    });
+    // Calculate consolidated consumo using same logic: sum of bodega consumos
+    // and consolidated min/max
+    return Object.values(map).map(e => {
+      const consumo_consolidado = e.consumo_vals.reduce((a,b)=>a+b,0);
+      const minimo_consolidado = Math.ceil(consumo_consolidado * 1.5);
+      const maximo_consolidado = Math.ceil(consumo_consolidado * 2);
+      const posicion_consolidada = e.stock_total + e.transito_total;
+      const sugerido_compra = posicion_consolidada < minimo_consolidado
+        ? Math.max(0, maximo_consolidado - posicion_consolidada) : 0;
+      const devolver_cd = e.bodegas_con_exceso > 0 && posicion_consolidada > maximo_consolidado
+        ? posicion_consolidada - maximo_consolidado : 0;
+      const ventas_12m = e.meses.reduce((a,b)=>a+b,0);
+      return { ...e, consumo_consolidado, minimo_consolidado, maximo_consolidado,
+        posicion_consolidada, sugerido_compra, devolver_cd, ventas_12m };
+    }).sort((a,b) => {
+      const ord = ["A00","A","B","C","N","D","E","F","G","P","O","Z"];
+      return ord.indexOf(a.abc_empresa) - ord.indexOf(b.abc_empresa);
+    });
+  }, [data]);
+
   // Cell selection for SAP copy
   const SELECTABLE_COLS = ["articulo","sugerido","consumo","minimo","maximo","posicion","stock","stock_cd","transito"];
 
@@ -342,6 +398,12 @@ export default function App() {
   };
 
   const clearSelection = () => setSelectedCells({});
+
+  const handleSearchInput = (val) => {
+    setSearchInput(val);
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    searchTimer.current = setTimeout(() => setSearch(val), 300);
+  };
 
   const exportToExcel = () => {
     const rows = filtered.map(r => ({
@@ -542,7 +604,11 @@ export default function App() {
           {selCount>0&&<button onClick={clearSelection} style={{fontSize:12,padding:"4px 10px",borderRadius:6,border:"0.5px solid #444441",background:"transparent",color:"#888780",cursor:"pointer"}}>✕</button>}
           <button onClick={exportToExcel} style={{fontSize:12,padding:"4px 14px",borderRadius:6,border:"none",background:"#1D9E75",color:"white",cursor:"pointer",fontWeight:500}}>⬇ Exportar Excel</button>
           <button onClick={loadFromSheets} disabled={loading} style={{fontSize:12,padding:"4px 14px",borderRadius:6,border:"0.5px solid #444441",background:"transparent",color:loading?"#888780":"#D3D1C7",cursor:loading?"wait":"pointer"}}>{loading?"Sincronizando…":"↻ Sincronizar"}</button>
-          <button onClick={()=>setView(v=>v==="resumen"?"detalle":"resumen")} style={{fontSize:12,padding:"4px 12px",borderRadius:6,border:"0.5px solid #444441",background:view==="detalle"?"#444441":"transparent",color:"#D3D1C7",cursor:"pointer"}}>{view==="resumen"?"Vista detalle":"Vista resumen"}</button>
+          {["resumen","detalle","consolidado"].map(v=>(
+            <button key={v} onClick={()=>setView(v)} style={{fontSize:12,padding:"4px 12px",borderRadius:6,border:"0.5px solid #444441",background:view===v?"#D3D1C7":"transparent",color:view===v?"#2C2C2A":"#888780",cursor:"pointer",fontWeight:view===v?500:400}}>
+              {v==="resumen"?"Resumen":v==="detalle"?"Detalle":"Consolidado"}
+            </button>
+          ))}
           <button onClick={()=>setStep("map")} style={{fontSize:12,padding:"4px 12px",borderRadius:6,border:"0.5px solid #444441",background:"transparent",color:"#888780",cursor:"pointer"}}>Columnas</button>
           <button onClick={()=>setStep("home")} style={{fontSize:12,padding:"4px 12px",borderRadius:6,border:"0.5px solid #444441",background:"transparent",color:"#888780",cursor:"pointer"}}>Inicio</button>
         </div>
@@ -654,7 +720,7 @@ export default function App() {
 
         {/* Filters bar */}
         <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
-          <input placeholder="Buscar SKU o descripción…" value={search} onChange={e=>setSearch(e.target.value)}
+          <input placeholder="Buscar SKU o descripción…" value={searchInput} onChange={e=>handleSearchInput(e.target.value)}
             style={{flex:1,minWidth:180,fontSize:13,padding:"6px 12px",borderRadius:8,border:"0.5px solid #D3D1C7",background:"white"}}/>
           <select value={filters.bodega} onChange={e=>setFilters(f=>({...f,bodega:e.target.value}))}
             style={{fontSize:13,padding:"6px 10px",borderRadius:8,border:"0.5px solid #D3D1C7",background:"white"}}>
@@ -684,10 +750,10 @@ export default function App() {
 
         {/* TABLE RESUMEN */}
         {view==="resumen" && <div style={{background:"white",border:"0.5px solid #D3D1C7",borderRadius:12,overflow:"hidden"}}>
-          <div style={{overflowX:"auto"}}>
+          <div style={{overflowX:"auto",maxHeight:"65vh",overflowY:"auto"}} onMouseUp={handleMouseUp}>
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
               <thead>
-                <tr>
+                <tr style={{position:"sticky",top:0,zIndex:2,background:"#F8F7F4"}}>
                   {/* Bodega header with filter */}
                   <th style={thStyle("bodega")} onClick={e=>{e.stopPropagation();setFilterOpen(f=>f==="bodega"?null:"bodega");}}>
                     Bodega {colFilters.bodega?.length?`(${colFilters.bodega.length})`:"▾"}
@@ -733,6 +799,9 @@ export default function App() {
                       </td>
                       <td style={{padding:"7px 10px",maxWidth:180,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:"#444441",cursor:"pointer"}} title={r.descripcion} onClick={()=>setSelected(r)}>{r.descripcion}</td>
                       <td style={{padding:"7px 10px",cursor:"pointer"}} onClick={()=>setSelected(r)}>
+                        <span style={{background:"#F1EFE8",color:"#444441",padding:"1px 7px",borderRadius:4,fontSize:11,fontWeight:500}}>{r.abc_empresa}</span>
+                      </td>
+                      <td style={{padding:"7px 10px",cursor:"pointer"}} onClick={()=>setSelected(r)}>
                         <span style={{background:r.abc_bodega==="A00"?"#FCEBEB":r.abc_bodega==="A"?"#EAF3DE":"#F1EFE8",color:r.abc_bodega==="A00"?"#A32D2D":r.abc_bodega==="A"?"#3B6D11":"#5F5E5A",padding:"1px 7px",borderRadius:4,fontSize:11,fontWeight:500}}>{r.abc_bodega}</span>
                       </td>
                       <td style={{padding:"7px 10px",textAlign:"right",cursor:"pointer"}} onClick={()=>setSelected(r)}>{r.consumo}</td>
@@ -762,11 +831,11 @@ export default function App() {
 
         {/* TABLE DETALLE con 12 meses */}
         {view==="detalle" && <div style={{background:"white",border:"0.5px solid #D3D1C7",borderRadius:12,overflow:"hidden"}}>
-          <div style={{overflowX:"auto"}}>
+          <div style={{overflowX:"auto",maxHeight:"65vh",overflowY:"auto"}}>
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
-              <thead><tr style={{background:"#F8F7F4"}}>
+              <thead style={{position:"sticky",top:0,zIndex:2}}><tr style={{background:"#F8F7F4"}}>
                 {["SKU","Descripci00f3n","ABC","Alerta Lote","Stock Bodega","Stock CD","Tr00e1nsito","Consumo","M00ednimo","M00e1ximo","Sugerido","M1","M2","M3","M4","M5","M6","M7","M8","M9","M10","M11","M12","Recomendaci00f3n"].map((h,i)=>(
-                  <th key={i} style={{padding:"6px 8px",textAlign:i>=11&&i<=23?"right":"left",fontSize:10,color:"#888780",fontWeight:500,borderBottom:"0.5px solid #D3D1C7",whiteSpace:"pre-wrap",lineHeight:1.3}}>{h}</th>
+                  <th key={i} style={{padding:"6px 8px",textAlign:i>=12&&i<=24?"right":"left",fontSize:10,color:"#888780",fontWeight:500,borderBottom:"0.5px solid #D3D1C7",whiteSpace:"pre-wrap",lineHeight:1.3}}>{h}</th>
                 ))}
               </tr></thead>
               <tbody>
@@ -786,6 +855,7 @@ export default function App() {
                       {r.articulo}
                     </td>
                     <td onClick={()=>setSelected(r)} style={{padding:"5px 8px",maxWidth:150,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:"#444441",cursor:"pointer"}} title={r.descripcion}>{r.descripcion}</td>
+                    <td style={{padding:"5px 8px"}}><span style={{background:"#F1EFE8",color:"#444441",padding:"1px 6px",borderRadius:3,fontSize:10,fontWeight:500}}>{r.abc_empresa}</span></td>
                     <td style={{padding:"5px 8px"}}><span style={{background:r.abc_bodega==="A00"?"#FCEBEB":r.abc_bodega==="A"?"#EAF3DE":"#F1EFE8",color:r.abc_bodega==="A00"?"#A32D2D":r.abc_bodega==="A"?"#3B6D11":"#5F5E5A",padding:"1px 6px",borderRadius:3,fontSize:10,fontWeight:500}}>{r.abc_bodega}</span></td>
                     <td style={{padding:"5px 8px"}}>{r.alerta_lote?<span style={{background:"#FAEEDA",color:"#854F0B",padding:"1px 6px",borderRadius:3,fontSize:10,fontWeight:500}}>{r.alerta_lote}</span>:""}</td>
                     <td style={{padding:"5px 8px",textAlign:"right",fontWeight:500}}>{r.stock}</td>
@@ -818,6 +888,64 @@ export default function App() {
           </div>
 
         </div>}
+        {/* CONSOLIDADO */}
+        {view==="consolidado" && (
+          <div style={{background:"white",border:"0.5px solid #D3D1C7",borderRadius:12,overflow:"hidden"}}>
+            <div style={{padding:"10px 16px",borderBottom:"0.5px solid #F1EFE8",display:"flex",gap:12,alignItems:"center",flexWrap:"wrap"}}>
+              <span style={{fontSize:11,color:"#888780"}}>{consolidado.length.toLocaleString()} códigos únicos · Suma de todas las bodegas</span>
+              <button onClick={()=>{
+                const rows = consolidado.map(r=>({
+                  "SKU":r.articulo,"Descripción":r.descripcion,"ABC Empresa":r.abc_empresa,
+                  "Stock Total":r.stock_total,"Stock CD":r.stock_cd,"Tránsito Total":r.transito_total,
+                  "Posición Consolidada":r.posicion_consolidada,"Consumo Consolidado":r.consumo_consolidado,
+                  "Mínimo":r.minimo_consolidado,"Máximo":r.maximo_consolidado,
+                  "Ventas 12M":r.ventas_12m,"Sugerido Compra":r.sugerido_compra,"Devolver CD":r.devolver_cd,
+                  "M1":r.meses[0],"M2":r.meses[1],"M3":r.meses[2],"M4":r.meses[3],
+                  "M5":r.meses[4],"M6":r.meses[5],"M7":r.meses[6],"M8":r.meses[7],
+                  "M9":r.meses[8],"M10":r.meses[9],"M11":r.meses[10],"M12":r.meses[11],
+                }));
+                const ws = XLSX.utils.json_to_sheet(rows);
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, "Consolidado");
+                XLSX.writeFile(wb, `consolidado_${new Date().toISOString().slice(0,10)}.xlsx`);
+              }} style={{fontSize:12,padding:"4px 12px",borderRadius:6,border:"none",background:"#1D9E75",color:"white",cursor:"pointer"}}>⬇ Exportar consolidado</button>
+            </div>
+            <div style={{overflowX:"auto",maxHeight:"65vh",overflowY:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                <thead style={{position:"sticky",top:0,zIndex:2}}><tr style={{background:"#F8F7F4"}}>
+                  {["SKU","Descripción","ABC Emp.","Stock Total","Stock CD","Tránsito","Posición","Consumo","Mínimo","Máximo","Ventas 12M","Sugerido Compra","Devolver CD"].map((h,i)=>(
+                    <th key={i} style={{padding:"8px 10px",textAlign:i>=3?"right":"left",fontSize:11,color:"#888780",fontWeight:500,borderBottom:"0.5px solid #D3D1C7",whiteSpace:"nowrap"}}>{h}</th>
+                  ))}
+                </tr></thead>
+                <tbody>
+                  {consolidado.map((r,i)=>{
+                    const tieneCompra = r.sugerido_compra > 0;
+                    const tieneDevol  = r.devolver_cd > 0;
+                    return (
+                      <tr key={i} style={{borderBottom:"0.5px solid #F1EFE8",background:tieneCompra?"#F0F7FF":tieneDevol?"#FDFAF0":"white"}}>
+                        <td style={{padding:"7px 10px",fontFamily:"monospace",whiteSpace:"nowrap"}}>{r.articulo}</td>
+                        <td style={{padding:"7px 10px",maxWidth:200,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:"#444441"}} title={r.descripcion}>{r.descripcion}</td>
+                        <td style={{padding:"7px 10px"}}>
+                          <span style={{background:r.abc_empresa==="A"?"#EAF3DE":r.abc_empresa==="B"?"#E6F1FB":"#F1EFE8",color:r.abc_empresa==="A"?"#3B6D11":r.abc_empresa==="B"?"#185FA5":"#5F5E5A",padding:"1px 7px",borderRadius:4,fontSize:11,fontWeight:500}}>{r.abc_empresa}</span>
+                        </td>
+                        <td style={{padding:"7px 10px",textAlign:"right",fontWeight:500,color:r.posicion_consolidada<r.minimo_consolidado?"#A32D2D":"#2C2C2A"}}>{r.stock_total}</td>
+                        <td style={{padding:"7px 10px",textAlign:"right",color:"#185FA5"}}>{r.stock_cd}</td>
+                        <td style={{padding:"7px 10px",textAlign:"right",color:"#888780"}}>{r.transito_total}</td>
+                        <td style={{padding:"7px 10px",textAlign:"right",fontWeight:500,color:r.posicion_consolidada<r.minimo_consolidado?"#A32D2D":"#2C2C2A"}}>{r.posicion_consolidada}</td>
+                        <td style={{padding:"7px 10px",textAlign:"right"}}>{r.consumo_consolidado}</td>
+                        <td style={{padding:"7px 10px",textAlign:"right",color:"#854F0B"}}>{r.minimo_consolidado}</td>
+                        <td style={{padding:"7px 10px",textAlign:"right",color:"#3B6D11"}}>{r.maximo_consolidado}</td>
+                        <td style={{padding:"7px 10px",textAlign:"right"}}>{r.ventas_12m}</td>
+                        <td style={{padding:"7px 10px",textAlign:"right",fontWeight:tieneCompra?700:400,color:tieneCompra?"#185FA5":"#888780"}}>{tieneCompra?r.sugerido_compra:"—"}</td>
+                        <td style={{padding:"7px 10px",textAlign:"right",fontWeight:tieneDevol?700:400,color:tieneDevol?"#854F0B":"#888780"}}>{tieneDevol?r.devolver_cd:"—"}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
