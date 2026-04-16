@@ -112,15 +112,22 @@ export default function App() {
   const [showLoteAlert, setShowLoteAlert] = useState(false);
 
   const loadRows = useCallback((rows) => {
-    setHeaders(Object.keys(rows[0]));
+    const hdrs = Object.keys(rows[0]);
+    setHeaders(hdrs);
     setRawData(rows);
     setLastSync(new Date());
     const saved = LM();
-    if (saved && REQUIRED_FIELDS.every(f => saved[f.key])) {
+    // Check if saved mapping covers ALL required fields including new ones
+    const allCovered = saved && REQUIRED_FIELDS.filter(f=>!f.optional).every(f => saved[f.key]) && saved["alerta_lote"];
+    if (allCovered) {
       setData(processRaw(rows, saved));
       setMapping(saved);
       setStep("dashboard");
-    } else { setStep("map"); }
+    } else {
+      // Auto-detect and go to map
+      if (saved) setMapping(saved);
+      setStep("map");
+    }
   }, []);
 
   const loadFromSheets = useCallback(async () => {
@@ -162,7 +169,7 @@ export default function App() {
       consumo:["consumo","mensual"],
       m1:["1"],m2:["2"],m3:["3"],m4:["4"],m5:["5"],m6:["6"],
       m7:["7"],m8:["8"],m9:["9"],m10:["10"],m11:["11"],m12:["12"],
-      alerta_lote:["alertalote","alerta_lote","alertalot","alertalote","alerta lote","alertlote"],
+      alerta_lote:["alertalote","alerta_lote","alertalot","alerta","lote","alert"],
     };
     const auto = {};
     REQUIRED_FIELDS.forEach(({ key }) => {
