@@ -20,7 +20,7 @@ const REQUIRED_FIELDS = [
   { key:"m8",  label:"Mes 8" }, { key:"m9",  label:"Mes 9" },
   { key:"m10", label:"Mes 10" },{ key:"m11", label:"Mes 11" },
   { key:"m12", label:"Mes 12 (más antiguo)" },
-  { key:"alerta_lote", label:"Alerta Lote", optional:true },
+  { key:"alerta_lote", label:"Alerta Lote", optional:false },
 ];
 
 const BAJA_ROTACION = ["D","E","F","G","P","O","Z"];
@@ -105,6 +105,8 @@ export default function App() {
   const [selected, setSelected] = useState(null);
   const [copied, setCopied]     = useState(false);
   const [selectedCells, setSelectedCells] = useState({}); // {rowIdx: {col: true}}
+  const [selectStart, setSelectStart] = useState(null); // {row, col}
+  const [isSelecting, setIsSelecting] = useState(false);
   const [filterOpen, setFilterOpen] = useState(null);
   const [showCDAlert, setShowCDAlert] = useState(false);
   const [showLoteAlert, setShowLoteAlert] = useState(false);
@@ -160,7 +162,7 @@ export default function App() {
       consumo:["consumo","mensual"],
       m1:["1"],m2:["2"],m3:["3"],m4:["4"],m5:["5"],m6:["6"],
       m7:["7"],m8:["8"],m9:["9"],m10:["10"],m11:["11"],m12:["12"],
-      alerta_lote:["alertalote","alerta_lote","alertalot","lote"],
+      alerta_lote:["alertalote","alerta_lote","alertalot","alertalote","alerta lote","alertlote"],
     };
     const auto = {};
     REQUIRED_FIELDS.forEach(({ key }) => {
@@ -246,6 +248,52 @@ export default function App() {
   }, [data]);
 
   // Cell selection for SAP copy
+  const SELECTABLE_COLS = ["articulo","sugerido","consumo","minimo","maximo","posicion","stock","stock_cd","transito"];
+
+  const handleCellMouseDown = (e, rowIdx, col) => {
+    if (!SELECTABLE_COLS.includes(col)) return;
+    e.preventDefault();
+    if (e.shiftKey && selectStart) {
+      // Range select from start to current
+      const minRow = Math.min(selectStart.row, rowIdx);
+      const maxRow = Math.max(selectStart.row, rowIdx);
+      const next = {};
+      for (let i = minRow; i <= maxRow; i++) {
+        next[i] = { [col]: true };
+        if (selectStart.col !== col) next[i][selectStart.col] = true;
+      }
+      setSelectedCells(next);
+    } else if (e.ctrlKey || e.metaKey) {
+      // Add to selection
+      setSelectedCells(prev => {
+        const next = { ...prev };
+        if (!next[rowIdx]) next[rowIdx] = {};
+        if (next[rowIdx][col]) { delete next[rowIdx][col]; if (!Object.keys(next[rowIdx]).length) delete next[rowIdx]; }
+        else next[rowIdx][col] = true;
+        return next;
+      });
+      setSelectStart({ row: rowIdx, col });
+    } else {
+      // Start new selection
+      setSelectedCells({ [rowIdx]: { [col]: true } });
+      setSelectStart({ row: rowIdx, col });
+      setIsSelecting(true);
+    }
+  };
+
+  const handleCellMouseEnter = (rowIdx, col) => {
+    if (!isSelecting || !selectStart || !SELECTABLE_COLS.includes(col)) return;
+    const minRow = Math.min(selectStart.row, rowIdx);
+    const maxRow = Math.max(selectStart.row, rowIdx);
+    const next = {};
+    for (let i = minRow; i <= maxRow; i++) {
+      next[i] = { [selectStart.col]: true };
+    }
+    setSelectedCells(next);
+  };
+
+  const handleMouseUp = () => setIsSelecting(false);
+
   const toggleCell = (rowIdx, col) => {
     setSelectedCells(prev => {
       const next = { ...prev };
@@ -264,11 +312,14 @@ export default function App() {
       const cols = Object.keys(selectedCells[idx]);
       const vals = cols.map(c => {
         if (c==="articulo")  return r.articulo;
-        if (c==="sugerido")  return r.sugerido;
+        if (c==="sugerido")  return r.sugerido||0;
         if (c==="consumo")   return r.consumo;
         if (c==="minimo")    return r.minimo;
         if (c==="maximo")    return r.maximo;
         if (c==="posicion")  return r.posicion;
+        if (c==="stock")     return r.stock;
+        if (c==="stock_cd")  return r.stock_cd;
+        if (c==="transito")  return r.transito;
         return "";
       });
       rows.push(vals.join("\t"));
@@ -461,7 +512,7 @@ export default function App() {
   });
 
   return (
-    <div style={{minHeight:"100vh",background:"#F8F7F4",...S}} onClick={()=>setFilterOpen(null)}>
+    <div style={{minHeight:"100vh",background:"#F8F7F4",...S}} onClick={()=>setFilterOpen(null)} onMouseUp={handleMouseUp}>
       {selected && <DetailModal r={selected} onClose={()=>setSelected(null)} />}
 
       {/* Header */}
@@ -615,7 +666,7 @@ export default function App() {
         <div style={{fontSize:11,color:"#888780",marginBottom:10,display:"flex",alignItems:"center",gap:12}}>
           <span>{filtered.length.toLocaleString()} de {metrics.total.toLocaleString()} registros</span>
           {selCount>0&&<span style={{color:"#185FA5"}}>· {selCount} fila(s) seleccionada(s) — haz clic en las celdas azules para copiar a SAP</span>}
-          {!selCount&&<span style={{color:"#888780"}}>· Haz clic en SKU o Sugerido para seleccionar · Clic en fila para detalle</span>}
+          {!selCount&&<span style={{color:"#888780"}}>· Clic y arrastra para seleccionar rango · Shift+clic para extender · Ctrl+clic para agregar · Clic en fila para detalle</span>}
           {Object.values(colFilters).some(v=>v?.length)&&(
             <span onClick={()=>setColFilters({})} style={{color:"#A32D2D",cursor:"pointer"}}>Limpiar filtros de columna ×</span>
           )}
@@ -664,8 +715,10 @@ export default function App() {
                       onMouseLeave={e=>{e.currentTarget.style.background=r.tipo==="CRITICO"?"#FFF8F8":"white";}}>
                       <td style={{padding:"7px 10px",maxWidth:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} onClick={()=>setSelected(r)}>{r.bodega}</td>
                       {/* Selectable: articulo */}
-                      <td onClick={e=>{e.stopPropagation();toggleCell(i,"articulo");}}
-                        style={{padding:"7px 10px",fontFamily:"monospace",whiteSpace:"nowrap",cursor:"pointer",background:artSel?"#DBEAFE":"transparent",borderRadius:4,outline:artSel?"2px solid #185FA5":"none",userSelect:"none"}}>
+                      <td
+                        onMouseDown={e=>handleCellMouseDown(e,i,"articulo")}
+                        onMouseEnter={()=>handleCellMouseEnter(i,"articulo")}
+                        style={{padding:"7px 10px",fontFamily:"monospace",whiteSpace:"nowrap",cursor:"cell",background:artSel?"#DBEAFE":"transparent",borderRadius:4,outline:artSel?"2px solid #185FA5":"none",userSelect:"none"}}>
                         {r.articulo}
                       </td>
                       <td style={{padding:"7px 10px",maxWidth:180,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:"#444441",cursor:"pointer"}} title={r.descripcion} onClick={()=>setSelected(r)}>{r.descripcion}</td>
@@ -679,8 +732,10 @@ export default function App() {
                       <td style={{padding:"7px 10px",textAlign:"right",color:"#888780",cursor:"pointer"}} onClick={()=>setSelected(r)}>{r.minimo}</td>
                       <td style={{padding:"7px 10px",textAlign:"right",color:"#888780",cursor:"pointer"}} onClick={()=>setSelected(r)}>{r.maximo}</td>
                       {/* Selectable: sugerido */}
-                      <td onClick={e=>{e.stopPropagation();if(r.sugerido>0)toggleCell(i,"sugerido");}}
-                        style={{padding:"7px 10px",textAlign:"right",fontWeight:r.sugerido>0?600:400,color:r.sugerido>0?"#185FA5":"#888780",cursor:r.sugerido>0?"pointer":"default",background:sugSel?"#DBEAFE":"transparent",borderRadius:4,outline:sugSel?"2px solid #185FA5":"none",userSelect:"none"}}>
+                      <td
+                        onMouseDown={e=>handleCellMouseDown(e,i,"sugerido")}
+                        onMouseEnter={()=>handleCellMouseEnter(i,"sugerido")}
+                        style={{padding:"7px 10px",textAlign:"right",fontWeight:r.sugerido>0?600:400,color:r.sugerido>0?"#185FA5":"#888780",cursor:"cell",background:sugSel?"#DBEAFE":"transparent",borderRadius:4,outline:sugSel?"2px solid #185FA5":"none",userSelect:"none"}}>
                         {r.sugerido||"—"}
                       </td>
                       <td style={{padding:"7px 10px",whiteSpace:"nowrap",cursor:"pointer"}} onClick={()=>setSelected(r)}>
