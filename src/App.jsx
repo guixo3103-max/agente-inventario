@@ -73,7 +73,10 @@ const processRaw = (rows, mapping) => rows.map(row => {
   const minimo   = calcMinimo(abc_bodega, consumo);
   const maximo   = calcMaximo(abc_bodega, consumo);
   const meses    = [1,2,3,4,5,6,7,8,9,10,11,12].map(i => gn(`m${i}`));
-  const alerta_lote = String(g("alerta_lote")||"").trim();
+  const alerta_lote_raw = g("alerta_lote");
+  const alerta_lote = alerta_lote_raw !== undefined && alerta_lote_raw !== null && alerta_lote_raw !== 0 && alerta_lote_raw !== "0"
+    ? String(alerta_lote_raw).trim()
+    : "";
   const base = { bodega:String(g("bodega")||""), articulo:String(g("articulo")||""),
     descripcion:String(g("descripcion")||""), abc_empresa, abc_bodega,
     stock, stock_cd, transito, consumo, posicion, minimo, maximo, meses };
@@ -770,11 +773,19 @@ export default function App() {
                 {filtered.map((r,i)=>{
                   const tc=TIPO_CONFIG[r.tipo];
                   const maxM=Math.max(...r.meses,1);
-                  return <tr key={i} onClick={()=>setSelected(r)} style={{borderBottom:"0.5px solid #F1EFE8",background:r.tipo==="CRITICO"?"#FFF8F8":"white",cursor:"pointer"}}
-                    onMouseEnter={e=>e.currentTarget.style.background="#F8F7F4"}
+                  const rowSelD = selectedCells[i] || {};
+                  const artSelD = rowSelD["articulo"];
+                  const sugSelD = rowSelD["sugerido"];
+                  return <tr key={i} style={{borderBottom:"0.5px solid #F1EFE8",background:r.tipo==="CRITICO"?"#FFF8F8":"white"}}
+                    onMouseEnter={e=>{if(!Object.keys(rowSelD).length)e.currentTarget.style.background="#F8F7F4";}}
                     onMouseLeave={e=>e.currentTarget.style.background=r.tipo==="CRITICO"?"#FFF8F8":"white"}>
-                    <td style={{padding:"5px 8px",fontFamily:"monospace",whiteSpace:"nowrap",fontSize:11}}>{r.articulo}</td>
-                    <td style={{padding:"5px 8px",maxWidth:150,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:"#444441"}} title={r.descripcion}>{r.descripcion}</td>
+                    <td
+                      onMouseDown={e=>handleCellMouseDown(e,i,"articulo")}
+                      onMouseEnter={()=>handleCellMouseEnter(i,"articulo")}
+                      style={{padding:"5px 8px",fontFamily:"monospace",whiteSpace:"nowrap",fontSize:11,cursor:"cell",background:artSelD?"#DBEAFE":"transparent",outline:artSelD?"2px solid #185FA5":"none",userSelect:"none"}}>
+                      {r.articulo}
+                    </td>
+                    <td onClick={()=>setSelected(r)} style={{padding:"5px 8px",maxWidth:150,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:"#444441",cursor:"pointer"}} title={r.descripcion}>{r.descripcion}</td>
                     <td style={{padding:"5px 8px"}}><span style={{background:r.abc_bodega==="A00"?"#FCEBEB":r.abc_bodega==="A"?"#EAF3DE":"#F1EFE8",color:r.abc_bodega==="A00"?"#A32D2D":r.abc_bodega==="A"?"#3B6D11":"#5F5E5A",padding:"1px 6px",borderRadius:3,fontSize:10,fontWeight:500}}>{r.abc_bodega}</span></td>
                     <td style={{padding:"5px 8px"}}>{r.alerta_lote?<span style={{background:"#FAEEDA",color:"#854F0B",padding:"1px 6px",borderRadius:3,fontSize:10,fontWeight:500}}>{r.alerta_lote}</span>:""}</td>
                     <td style={{padding:"5px 8px",textAlign:"right",fontWeight:500}}>{r.stock}</td>
@@ -783,7 +794,12 @@ export default function App() {
                     <td style={{padding:"5px 8px",textAlign:"right"}}>{r.consumo}</td>
                     <td style={{padding:"5px 8px",textAlign:"right",color:"#854F0B"}}>{r.minimo}</td>
                     <td style={{padding:"5px 8px",textAlign:"right",color:"#3B6D11"}}>{r.maximo}</td>
-                    <td style={{padding:"5px 8px",textAlign:"right",fontWeight:r.sugerido>0?600:400,color:r.sugerido>0?"#185FA5":"#888780"}}>{r.sugerido||"—"}</td>
+                    <td
+                      onMouseDown={e=>handleCellMouseDown(e,i,"sugerido")}
+                      onMouseEnter={()=>handleCellMouseEnter(i,"sugerido")}
+                      style={{padding:"5px 8px",textAlign:"right",fontWeight:r.sugerido>0?600:400,color:r.sugerido>0?"#185FA5":"#888780",cursor:r.sugerido>0?"cell":"default",background:sugSelD?"#DBEAFE":"transparent",outline:sugSelD?"2px solid #185FA5":"none",userSelect:"none"}}>
+                      {r.sugerido||"—"}
+                    </td>
                     {r.meses.map((v,mi)=>(
                       <td key={mi} style={{padding:"4px 6px",textAlign:"right"}}>
                         <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:1}}>
