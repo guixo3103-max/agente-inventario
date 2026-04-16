@@ -563,9 +563,7 @@ export default function App() {
           <div style={{overflowX:"auto"}}>
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
               <thead><tr style={{background:"#F8F7F4"}}>
-                {["SKU","Descripción","ABC","Alerta Lote","Stock
-Bodega","Stock
-CD","Tránsito","Consumo","Mínimo","Máximo","Sugerido","M1","M2","M3","M4","M5","M6","M7","M8","M9","M10","M11","M12","Recomendación"].map((h,i)=>(
+              {["SKU","Descripción","ABC","Alerta Lote","Stock Bodega","Stock CD","Tránsito","Consumo","Mínimo","Máximo","Sugerido","M1","M2","M3","M4","M5","M6","M7","M8","M9","M10","M11","M12","Recomendación"].map((h,i)=>(
                   <th key={i} style={{padding:"6px 8px",textAlign:i>=11&&i<=23?"right":"left",fontSize:10,color:"#888780",fontWeight:500,borderBottom:"0.5px solid #D3D1C7",whiteSpace:"pre-wrap",lineHeight:1.3}}>{h}</th>
                 ))}
               </tr></thead>
