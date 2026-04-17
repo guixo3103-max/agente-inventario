@@ -1,18 +1,25 @@
 import { useState, useCallback, useMemo, useRef } from "react";
 import * as XLSX from "xlsx";
 
-const SHEETS_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRJwCHYoCrnaMu-SXGZoD-1N2rx7tl192B1vEKhrmCPvbBQvyK-79hBsOLkRDjwD-YEX2P0mB8VQFRy/pub?gid=752561413&single=true&output=csv";
+const SHEETS_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTc2pgZ4LGrAfpMimyHf_wEVg4CioOjJcOcXYW0SGMPm2HdI2GiamG8032zZvDe54OgbhQ-MxQvPBn4/pub?gid=868658425&single=true&output=csv";
 
 const REQUIRED_FIELDS = [
-  { key:"bodega",       label:"Bodega / Punto de venta" },
-  { key:"articulo",    label:"Código artículo (SKU)" },
-  { key:"descripcion", label:"Descripción" },
-  { key:"abc_empresa", label:"ABC Empresa" },
-  { key:"abc_bodega",  label:"ABC Bodega (NEW365)" },
-  { key:"stock",       label:"Stock bodega" },
-  { key:"stock_cd",    label:"Stock en CD (PM122)" },
-  { key:"transito",    label:"Tránsito" },
-  { key:"consumo",     label:"Consumo mensual" },
+  { key:"cod_bodega",       label:"Código bodega (NuevaBodega)" },
+  { key:"nombre_bodega",    label:"Nombre bodega (Nombre Bodega)" },
+  { key:"bodega",           label:"Bodega / Punto de venta (NuevaBodega)" },
+  { key:"articulo",        label:"Código artículo (SKU)" },
+  { key:"descripcion",     label:"Descripción" },
+  { key:"abc_empresa",     label:"ABC Empresa" },
+  { key:"abc_bodega",      label:"ABC Bodega (NEW365)" },
+  { key:"stock",           label:"Stock bodega" },
+  { key:"stock_cd",        label:"Stock en CD (PM122)" },
+  { key:"transito",        label:"Tránsito" },
+  { key:"consumo",         label:"Consumo mensual" },
+  { key:"frq",             label:"FRQ (Frecuencia)" },
+  { key:"minimo",          label:"Mínimo (Minimo Nuevo)" },
+  { key:"maximo",          label:"Máximo (Maximo Nuevo)" },
+  { key:"nivelacion",      label:"Sugerido (Nivelación)" },
+  { key:"crit_normalidad", label:"Tipo nivelación (Crit. Normalidad)" },
   { key:"m1",  label:"Mes 1 (más reciente)" },
   { key:"m2",  label:"Mes 2" }, { key:"m3",  label:"Mes 3" },
   { key:"m4",  label:"Mes 4" }, { key:"m5",  label:"Mes 5" },
@@ -20,7 +27,7 @@ const REQUIRED_FIELDS = [
   { key:"m8",  label:"Mes 8" }, { key:"m9",  label:"Mes 9" },
   { key:"m10", label:"Mes 10" },{ key:"m11", label:"Mes 11" },
   { key:"m12", label:"Mes 12 (más antiguo)" },
-  { key:"alerta_lote", label:"Alerta Lote", optional:false },
+  { key:"alerta_lote", label:"Alerta Lote", optional:true },
 ];
 
 const BAJA_ROTACION = ["D","E","F","G","P","O","Z"];
@@ -63,15 +70,24 @@ const calcTipo = r => {
 const processRaw = (rows, mapping) => rows.map(row => {
   const g  = k => { const c = mapping[k]; return c ? row[c] : ""; };
   const gn = k => parseFloat(g(k)) || 0;
-  const abc_bodega  = String(g("abc_bodega")  || "").trim().toUpperCase();
-  const abc_empresa = String(g("abc_empresa") || "").trim().toUpperCase();
-  const consumo  = gn("consumo");
-  const stock    = gn("stock");
-  const stock_cd = gn("stock_cd");
-  const transito = gn("transito");
+  const abc_bodega     = String(g("abc_bodega")  || "").trim().toUpperCase();
+  const abc_empresa    = String(g("abc_empresa") || "").trim().toUpperCase();
+  const consumo        = gn("consumo");
+  const frq            = gn("frq");
+  const stock          = gn("stock");
+  const stock_cd       = gn("stock_cd");
+  const transito       = gn("transito");
+  const cod_bodega     = String(g("cod_bodega")     || g("bodega") || "").trim();
+  const nombre_bodega  = String(g("nombre_bodega")  || "").trim();
+  const bodega_display = cod_bodega && nombre_bodega
+    ? `${cod_bodega} — ${nombre_bodega}`
+    : cod_bodega || nombre_bodega || String(g("bodega")||"");
   const posicion = stock + transito;
-  const minimo   = calcMinimo(abc_bodega, consumo);
-  const maximo   = calcMaximo(abc_bodega, consumo);
+  // Read pre-calculated values from Excel
+  const minimo   = gn("minimo");
+  const maximo   = gn("maximo");
+  const nivelacion      = gn("nivelacion");
+  const crit_normalidad = String(g("crit_normalidad")||"").trim();
   const meses    = [1,2,3,4,5,6,7,8,9,10,11,12].map(i => gn(`m${i}`));
   const alerta_lote_raw = g("alerta_lote");
   const alerta_lote = alerta_lote_raw !== undefined && alerta_lote_raw !== null && alerta_lote_raw !== 0 && alerta_lote_raw !== "0"
@@ -123,7 +139,7 @@ export default function App() {
     setLastSync(new Date());
     const saved = LM();
     // Check if saved mapping covers ALL required fields including new ones
-    const allCovered = saved && REQUIRED_FIELDS.filter(f=>!f.optional).every(f => saved[f.key]) && saved["alerta_lote"];
+    const allCovered = saved && REQUIRED_FIELDS.filter(f=>!f.optional).every(f => saved[f.key]) && saved["minimo"] && saved["nivelacion"] && saved["crit_normalidad"] && saved["frq"];
     if (allCovered) {
       setData(processRaw(rows, saved));
       setMapping(saved);
@@ -165,7 +181,10 @@ export default function App() {
 
   const autoMap = useCallback(() => {
     const hints = {
-      bodega:["bodega","punto","agencia","nuevabodega"],
+      bodega:["nuevabodega","bodega","punto","agencia"],
+      cod_bodega:["nuevabodega","codbodega","cod_bodega","codigobodega"],
+      nombre_bodega:["nombrebodega","nombre bodega","nombrebod"],
+      frq:["frq","frecuencia","freq"],
       articulo:["articulo","sku","codigo","nuevoarticulo"],
       descripcion:["desc","nombre","producto"],
       abc_empresa:["abcemp","abc_emp","abcempresa"],
@@ -176,7 +195,11 @@ export default function App() {
       consumo:["consumo","mensual"],
       m1:["1"],m2:["2"],m3:["3"],m4:["4"],m5:["5"],m6:["6"],
       m7:["7"],m8:["8"],m9:["9"],m10:["10"],m11:["11"],m12:["12"],
-      alerta_lote:["alertalote","alerta_lote","alertalot","alerta","lote","alert"],
+      alerta_lote:["alertalote","alerta_lote","alertalot","alerta lote"],
+      minimo:["minimonuevo","minimo nuevo","minimo"],
+      maximo:["maximonuevo","maximo nuevo","maximo"],
+      nivelacion:["nivelacion","nivelación","sugerido"],
+      crit_normalidad:["critnormalidad","crit normalidad","normalidad","criticalidad"],
     };
     const auto = {};
     REQUIRED_FIELDS.forEach(({ key }) => {
@@ -314,7 +337,7 @@ export default function App() {
   }, [data]);
 
   // Cell selection for SAP copy
-  const SELECTABLE_COLS = ["articulo","sugerido","consumo","minimo","maximo","posicion","stock","stock_cd","transito"];
+  const SELECTABLE_COLS = ["articulo","sugerido","consumo","minimo","maximo","stock","stock_cd","transito"];
 
   const handleCellMouseDown = (e, rowIdx, col) => {
     if (!SELECTABLE_COLS.includes(col)) return;
@@ -382,7 +405,6 @@ export default function App() {
         if (c==="consumo")   return r.consumo;
         if (c==="minimo")    return r.minimo;
         if (c==="maximo")    return r.maximo;
-        if (c==="posicion")  return r.posicion;
         if (c==="stock")     return r.stock;
         if (c==="stock_cd")  return r.stock_cd;
         if (c==="transito")  return r.transito;
@@ -420,7 +442,7 @@ export default function App() {
       "Mínimo": r.minimo,
       "Máximo": r.maximo,
       "Sugerido": r.sugerido,
-      "Alerta Lote": r.alerta_lote||"",
+      
       "Acción": TIPO_CONFIG[r.tipo]?.label||"",
       "M1": r.meses[0], "M2": r.meses[1], "M3": r.meses[2], "M4": r.meses[3],
       "M5": r.meses[4], "M6": r.meses[5], "M7": r.meses[6], "M8": r.meses[7],
@@ -531,6 +553,7 @@ export default function App() {
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:16}}>
             <div>
               <div style={{fontSize:11,color:"#888780",marginBottom:2}}>{r.bodega}</div>
+              <div style={{fontSize:11,color:"#B4B2A9"}}>FRQ: {r.frq} meses activos</div>
               <div style={{fontSize:16,fontWeight:600,color:"#2C2C2A"}}>{r.articulo}</div>
               <div style={{fontSize:13,color:"#444441"}}>{r.descripcion}</div>
             </div>
@@ -541,7 +564,6 @@ export default function App() {
               {label:"Stock bodega",    val:r.stock,    color:"#2C2C2A"},
               {label:"Stock CD",        val:r.stock_cd, color:"#185FA5"},
               {label:"Tránsito",        val:r.transito, color:"#888780"},
-              {label:"Posición",        val:r.posicion, color:r.posicion<r.minimo?"#A32D2D":"#2C2C2A"},
               {label:"Consumo mensual", val:r.consumo,  color:"#2C2C2A"},
               {label:"Mínimo",         val:r.minimo,   color:"#854F0B"},
               {label:"Máximo",         val:r.maximo,   color:"#3B6D11"},
@@ -553,10 +575,14 @@ export default function App() {
               </div>
             ))}
           </div>
-          <div style={{background:TIPO_CONFIG[r.tipo].bg,borderRadius:8,padding:"0.8rem 1rem",marginBottom:16,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-            <span style={{fontSize:13,fontWeight:600,color:TIPO_CONFIG[r.tipo].color}}>Recomendación:</span>
+          <div style={{background:TIPO_CONFIG[r.tipo].bg,borderRadius:8,padding:"0.8rem 1rem",marginBottom:8,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+            <span style={{fontSize:13,fontWeight:600,color:TIPO_CONFIG[r.tipo].color}}>Acción:</span>
             <span style={{fontSize:13,color:TIPO_CONFIG[r.tipo].color}}>{TIPO_CONFIG[r.tipo].label}</span>
             {r.sugerido>0&&<span style={{marginLeft:"auto",fontSize:13,fontWeight:600,color:TIPO_CONFIG[r.tipo].color}}>Cantidad sugerida: {r.sugerido} u.</span>}
+          </div>
+          <div style={{background:r.crit_normalidad==="Nivelación automática"?"#EAF3DE":"#FAEEDA",borderRadius:8,padding:"0.8rem 1rem",marginBottom:16,display:"flex",alignItems:"center",gap:10}}>
+            <span style={{fontSize:13,fontWeight:600,color:r.crit_normalidad==="Nivelación automática"?"#3B6D11":"#854F0B"}}>Tipo nivelación:</span>
+            <span style={{fontSize:13,color:r.crit_normalidad==="Nivelación automática"?"#3B6D11":"#854F0B"}}>{r.crit_normalidad||"—"}</span>
           </div>
           <div>
             <div style={{fontSize:11,color:"#888780",textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:10}}>Ventas últimos 12 meses (M1 = más reciente)</div>
@@ -618,7 +644,7 @@ export default function App() {
         {error&&<div style={{fontSize:12,color:"#A32D2D",background:"#FCEBEB",padding:"8px 12px",borderRadius:8,marginBottom:12}}>{error}</div>}
 
         {/* Metric cards */}
-        <div style={{display:"grid",gridTemplateColumns:"repeat(6,minmax(0,1fr))",gap:10,marginBottom:18}}>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(7,minmax(0,1fr))",gap:10,marginBottom:18}}>
           {[
             {label:"Críticos sin stock",   val:metrics.criticos,   color:"#A32D2D",bg:"#FCEBEB",f:"CRITICO"},
             {label:"Reposición pendiente", val:metrics.reposicion, color:"#185FA5",bg:"#E6F1FB",f:"REPOSICION"},
@@ -636,6 +662,10 @@ export default function App() {
             <div style={{fontSize:11,color:"#888780",marginBottom:4}}>Insuficiencia en CD</div>
             <div style={{fontSize:22,fontWeight:500,color:alertasCD.length>0?"#A32D2D":"#888780"}}>{alertasCD.length}</div>
             {alertasCD.length>0&&<div style={{fontSize:10,color:"#A32D2D",marginTop:2}}>SKUs sin cobertura ↗</div>}
+          </div>
+          <div style={{background:"white",border:"0.5px solid #D3D1C7",borderRadius:10,padding:"0.85rem 1rem"}}>
+            <div style={{fontSize:11,color:"#888780",marginBottom:4}}>Nivelación automática</div>
+            <div style={{fontSize:22,fontWeight:500,color:"#3B6D11"}}>{data.filter(r=>r.crit_normalidad==="Nivelación automática").length.toLocaleString()}</div>
           </div>
           <div onClick={()=>setShowLoteAlert(true)}
             style={{background:alertasLote.length>0?"#FAEEDA":"white",border:`0.5px solid ${alertasLote.length>0?"#854F0B55":"#D3D1C7"}`,borderRadius:10,padding:"0.85rem 1rem",cursor:"pointer",transition:"all 0.15s"}}>
@@ -804,10 +834,10 @@ export default function App() {
                       <td style={{padding:"7px 10px",cursor:"pointer"}} onClick={()=>setSelected(r)}>
                         <span style={{background:r.abc_bodega==="A00"?"#FCEBEB":r.abc_bodega==="A"?"#EAF3DE":"#F1EFE8",color:r.abc_bodega==="A00"?"#A32D2D":r.abc_bodega==="A"?"#3B6D11":"#5F5E5A",padding:"1px 7px",borderRadius:4,fontSize:11,fontWeight:500}}>{r.abc_bodega}</span>
                       </td>
+                      <td style={{padding:"7px 10px",textAlign:"right",cursor:"pointer"}} onClick={()=>setSelected(r)}>{r.frq}</td>
                       <td style={{padding:"7px 10px",textAlign:"right",cursor:"pointer"}} onClick={()=>setSelected(r)}>{r.consumo}</td>
                       <td style={{padding:"7px 10px",textAlign:"right",cursor:"pointer"}} onClick={()=>setSelected(r)}>{r.stock}</td>
                       <td style={{padding:"7px 10px",textAlign:"right",color:"#888780",cursor:"pointer"}} onClick={()=>setSelected(r)}>{r.transito}</td>
-                      <td style={{padding:"7px 10px",textAlign:"right",fontWeight:500,color:r.posicion<r.minimo?"#A32D2D":"#2C2C2A",cursor:"pointer"}} onClick={()=>setSelected(r)}>{r.posicion}</td>
                       <td style={{padding:"7px 10px",textAlign:"right",color:"#888780",cursor:"pointer"}} onClick={()=>setSelected(r)}>{r.minimo}</td>
                       <td style={{padding:"7px 10px",textAlign:"right",color:"#888780",cursor:"pointer"}} onClick={()=>setSelected(r)}>{r.maximo}</td>
                       {/* Selectable: sugerido */}
@@ -857,6 +887,7 @@ export default function App() {
                     <td onClick={()=>setSelected(r)} style={{padding:"5px 8px",maxWidth:150,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:"#444441",cursor:"pointer"}} title={r.descripcion}>{r.descripcion}</td>
                     <td style={{padding:"5px 8px"}}><span style={{background:"#F1EFE8",color:"#444441",padding:"1px 6px",borderRadius:3,fontSize:10,fontWeight:500}}>{r.abc_empresa}</span></td>
                     <td style={{padding:"5px 8px"}}><span style={{background:r.abc_bodega==="A00"?"#FCEBEB":r.abc_bodega==="A"?"#EAF3DE":"#F1EFE8",color:r.abc_bodega==="A00"?"#A32D2D":r.abc_bodega==="A"?"#3B6D11":"#5F5E5A",padding:"1px 6px",borderRadius:3,fontSize:10,fontWeight:500}}>{r.abc_bodega}</span></td>
+                    <td style={{padding:"5px 8px",textAlign:"right"}}>{r.frq}</td>
                     <td style={{padding:"5px 8px"}}>{r.alerta_lote?<span style={{background:"#FAEEDA",color:"#854F0B",padding:"1px 6px",borderRadius:3,fontSize:10,fontWeight:500}}>{r.alerta_lote}</span>:""}</td>
                     <td style={{padding:"5px 8px",textAlign:"right",fontWeight:500}}>{r.stock}</td>
                     <td style={{padding:"5px 8px",textAlign:"right",color:"#185FA5"}}>{r.stock_cd}</td>
@@ -880,6 +911,9 @@ export default function App() {
                         </div>
                       </td>
                     ))}
+                    <td style={{padding:"5px 8px",whiteSpace:"nowrap"}}>
+                      <span style={{background:r.crit_normalidad==="Nivelación automática"?"#EAF3DE":"#FAEEDA",color:r.crit_normalidad==="Nivelación automática"?"#3B6D11":"#854F0B",padding:"2px 6px",borderRadius:3,fontSize:10,fontWeight:500}}>{r.crit_normalidad||"—"}</span>
+                    </td>
                     <td style={{padding:"5px 8px",whiteSpace:"nowrap"}}><span style={{background:tc.bg,color:tc.color,padding:"2px 6px",borderRadius:3,fontSize:10,fontWeight:500}}>{tc.label}</span></td>
                   </tr>;
                 })}
@@ -913,7 +947,7 @@ export default function App() {
             <div style={{overflowX:"auto",maxHeight:"65vh",overflowY:"auto"}}>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                 <thead style={{position:"sticky",top:0,zIndex:2}}><tr style={{background:"#F8F7F4"}}>
-                  {["SKU","Descripción","ABC Emp.","Stock Total","Stock CD","Tránsito","Posición","Consumo","Mínimo","Máximo","Ventas 12M","Sugerido Compra","Devolver CD"].map((h,i)=>(
+                  {["SKU","Descripción","ABC Emp.","Stock Total","Stock CD","Tránsito","Consumo","Mínimo","Máximo","Ventas 12M","Sugerido Compra","Devolver CD"].map((h,i)=>(
                     <th key={i} style={{padding:"8px 10px",textAlign:i>=3?"right":"left",fontSize:11,color:"#888780",fontWeight:500,borderBottom:"0.5px solid #D3D1C7",whiteSpace:"nowrap"}}>{h}</th>
                   ))}
                 </tr></thead>
@@ -931,7 +965,6 @@ export default function App() {
                         <td style={{padding:"7px 10px",textAlign:"right",fontWeight:500,color:r.posicion_consolidada<r.minimo_consolidado?"#A32D2D":"#2C2C2A"}}>{r.stock_total}</td>
                         <td style={{padding:"7px 10px",textAlign:"right",color:"#185FA5"}}>{r.stock_cd}</td>
                         <td style={{padding:"7px 10px",textAlign:"right",color:"#888780"}}>{r.transito_total}</td>
-                        <td style={{padding:"7px 10px",textAlign:"right",fontWeight:500,color:r.posicion_consolidada<r.minimo_consolidado?"#A32D2D":"#2C2C2A"}}>{r.posicion_consolidada}</td>
                         <td style={{padding:"7px 10px",textAlign:"right"}}>{r.consumo_consolidado}</td>
                         <td style={{padding:"7px 10px",textAlign:"right",color:"#854F0B"}}>{r.minimo_consolidado}</td>
                         <td style={{padding:"7px 10px",textAlign:"right",color:"#3B6D11"}}>{r.maximo_consolidado}</td>
